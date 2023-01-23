@@ -1,10 +1,10 @@
 package com.kafka.producer;
 
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.internals.RecordHeader;
@@ -12,15 +12,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Component;
+import org.springframework.util.concurrent.ListenableFuture;
+import org.springframework.util.concurrent.ListenableFutureCallback;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kafka.domain.LibraryEvent;
 
-import lombok.extern.slf4j.Slf4j;
-
 @Component
-@Slf4j
+// @Slf4j
 public class LibraryEventProducer {
 
 	String TOPIC = "library-events";
@@ -36,11 +36,25 @@ public class LibraryEventProducer {
 		Integer key = libraryEvent.getLibraryEventId();
 		String value = objectMapper.writeValueAsString(libraryEvent);
 		
-		final ProducerRecord<Integer, String> record = createProducerRecord(TOPIC, key, value);
+		final ProducerRecord<Integer, String> producerRecord = createProducerRecord(TOPIC, key, value);
 		
-		// ListenableFuture is deprecated
-		CompletableFuture<SendResult<Integer, String>> completableFuture = kafkaTemplate.send(record);
+		// ListenableFuture will get deprecated
+		ListenableFuture<SendResult<Integer, String>> listenableFuture = kafkaTemplate.send(producerRecord);
 		
+		listenableFuture.addCallback(new ListenableFutureCallback<SendResult<Integer, String>>() {
+			@Override
+			public void onSuccess(SendResult<Integer, String> result) {
+				handleSuccess(key, value, result);		
+			}
+			@Override
+			public void onFailure(Throwable ex) {
+				handleFailure(key, value, ex);				
+			}
+		});
+
+		/*
+		CompletableFuture<SendResult<Integer, String>> completableFuture = kafkaTemplate.send(producerRecord);
+
 		completableFuture.whenComplete((sendResult, throwable) -> {
 			if (throwable == null) {
 				handleSuccess(key, value, sendResult);
@@ -48,6 +62,7 @@ public class LibraryEventProducer {
 				handleFailure(key, value, throwable);
 			}
 		});
+		*/
 	}
 
 	public SendResult<Integer,String> sendLibraryEventSync(LibraryEvent libraryEvent) throws JsonProcessingException {
@@ -75,7 +90,7 @@ public class LibraryEventProducer {
 		List<Header> recordHeaders = List.of(new RecordHeader("event-source", "scanner".getBytes()), 
 												new RecordHeader("event-type", "type".getBytes()));
 		
-		return new ProducerRecord<Integer, String>(topic, null, null, key, value, recordHeaders);
+		return new ProducerRecord<>(topic, null, null, key, value, recordHeaders);
 	}
 	
 	private void handleSuccess(Integer key, String value, SendResult<Integer, String> result) {
